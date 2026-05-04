@@ -1,0 +1,19 @@
+# pip fallback if conda is unavailable. Prefer environment.yml when possible.
+# Use Python 3.9. PyTorch 1.12 + CUDA 11.6 wheels live on the pytorch index.
+# Install with:
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu116
+torch==1.12.1
+torchvision==0.13.1
+numpy>=1.20
+click>=8.0
+pillow>=8.3.1
+scipy>=1.7.1
+psutil
+requests
+tqdm
+imageio
+imageio-ffmpeg>=0.4.3
+pyspng
+matplotlib>=3.5
+clean-fid>=0.1.35
+wandb>=0.15
