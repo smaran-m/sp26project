@@ -86,8 +86,13 @@ def build_train_cmd(cfg: dict, run_dir: Path, resume: Path | None) -> list[str]:
     train_kwargs = {k: v for k, v in cfg.items() if not k.startswith("_") and k != "name"}
     train_kwargs.update(kimg_to_train_args(cfg["_total_kimg"], cfg["_snapshot_kimg"]))
 
+    # Invoke the launcher as a module rather than via the `torchrun` wrapper script.
+    # On Windows, the conda env's torchrun shim has a shebang that often fails with
+    # "failed to create process." The `-m` form is identical functionally and works
+    # on every platform.
     cmd = [
-        "torchrun", "--standalone", "--nproc_per_node=1",
+        sys.executable, "-m", "torch.distributed.run",
+        "--standalone", "--nproc_per_node=1",
         "train.py",
         f"--outdir={TRAINING_RUNS.relative_to(PFGMPP_DIR).as_posix()}",
         f"--name={cfg['name']}",
@@ -125,13 +130,24 @@ def run_one_d(d: str, profile: str, args: argparse.Namespace) -> bool:
     if args.dry_run:
         log("--dry-run: skipping subprocess.run for train")
     else:
+        snap_before = {p.name for p in run_dir.glob("training-state-*.pt")}
         try:
             subprocess.run(cmd, cwd=PFGMPP_DIR, check=True)
         except KeyboardInterrupt:
-            log("D={d}: interrupted; train.py should have flushed its latest state on SIGINT")
+            log(f"D={d}: interrupted; train.py should have flushed its latest state on SIGINT")
             return False
         except subprocess.CalledProcessError as e:
             log(f"D={d}: train.py exited non-zero ({e.returncode}); proceeding to eval anyway")
+        # Defensive: some Windows launcher wrappers exit 0 even when the actual process
+        # never started. If no new snapshot was written and there was no resume to
+        # extend, treat that as a hard failure for this D.
+        snap_after = {p.name for p in run_dir.glob("training-state-*.pt")}
+        if resume is None and not snap_after:
+            log(f"D={d}: no checkpoint produced and no resume — train likely never ran")
+            log(f"D={d}: re-run with the displayed command to see the real error")
+            return False
+        if snap_after == snap_before and resume is not None:
+            log(f"D={d}: train completed without writing new snapshots (already done?)")
 
     # Eval whatever snapshots exist (resume case may have new ones, fresh-start case
     # will have whatever the train run produced).

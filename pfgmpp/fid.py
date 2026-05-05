@@ -55,7 +55,9 @@ def calculate_inception_stats(
     # TODO: test different seeds and take the minimum
     all_batches = torch.arange(len(dataset_obj)).tensor_split(num_batches)
     rank_batches = all_batches[dist.get_rank() :: dist.get_world_size()]
-    data_loader = torch.utils.data.DataLoader(dataset_obj, batch_sampler=rank_batches, num_workers=0, prefetch_factor=prefetch_factor)
+    # torch >= 2.0 raises ValueError if prefetch_factor is passed with num_workers=0.
+    # 1.12 silently ignored it. Drop the kwarg to stay compatible with both.
+    data_loader = torch.utils.data.DataLoader(dataset_obj, batch_sampler=rank_batches, num_workers=0)
 
     # Accumulate statistics.
     dist.print0(f'Calculating statistics for {len(dataset_obj)} images...')

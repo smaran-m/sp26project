@@ -29,6 +29,15 @@ CSV_PATH = REPO_ROOT / "sweep_results.csv"
 CSV_HEADER = ["d_value", "step", "kimg", "fid", "wall_time"]
 
 
+def child_env() -> dict:
+    """Env for torch subprocesses. Workaround for Windows OpenMP collision between
+    torch's libomp.dll and numpy/MKL's libiomp5md.dll, which crashes scipy.linalg
+    teardown after FID computation succeeds. Safe in this single-process context."""
+    env = os.environ.copy()
+    env.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+    return env
+
+
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] [eval] {msg}", flush=True)
 
@@ -80,8 +89,11 @@ def run_generate(run_dir: Path, kimg: int, pfgmpp: bool, aug_dim: int,
         log(f"  generate: {out_subdir.name} already populated, skipping")
         return out_subdir
     seeds = f"0-{num_samples - 1}"
+    # Bypass torch.distributed.run for single-rank: dist.init() in pfgmpp self-fills
+    # MASTER_ADDR/RANK/etc. The launcher hides Python tracebacks behind its summary,
+    # which makes debugging painful. Direct invocation gives us raw stderr.
     cmd = [
-        "torchrun", "--standalone", "--nproc_per_node=1",
+        sys.executable,
         "generate.py",
         f"--outdir={run_dir.relative_to(PFGMPP_DIR).as_posix()}",
         f"--seeds={seeds}",
@@ -93,28 +105,52 @@ def run_generate(run_dir: Path, kimg: int, pfgmpp: bool, aug_dim: int,
         "--subdirs",
     ]
     log(f"  generate: {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=PFGMPP_DIR, check=True)
+    subprocess.run(cmd, cwd=PFGMPP_DIR, check=True, env=child_env())
     return out_subdir
 
 
-def run_fid(images_dir: Path, num_samples: int) -> float:
-    ref = (PFGMPP_DIR / "fid-refs" / "cifar10-32x32.npz").relative_to(PFGMPP_DIR).as_posix()
+def run_fid(run_dir: Path, kimg: int, num_samples: int) -> float:
+    """Invoke fid.py for a single ckpt_<kimg>/ subdir.
+
+    fid.py expects --images to be the *parent* run dir and uses --ckpt/--end_ckpt
+    to filter to a single snapshot, mirroring generate.py. It prints
+    `path:<dir>, <fid_value>` on stdout — parse that.
+    """
+    ref_abs = PFGMPP_DIR / "fid-refs" / "cifar10-32x32.npz"
+    if not ref_abs.exists():
+        raise FileNotFoundError(
+            f"FID reference not found at {ref_abs}. Run `python prepare_dataset.py` "
+            "first; it builds this file via `fid.py ref`."
+        )
     cmd = [
-        "torchrun", "--standalone", "--nproc_per_node=1",
+        sys.executable,
         "fid.py", "calc",
-        f"--images={images_dir.relative_to(PFGMPP_DIR).as_posix()}",
-        f"--ref={ref}",
+        f"--images={run_dir.relative_to(PFGMPP_DIR).as_posix()}",
+        f"--ref={ref_abs.relative_to(PFGMPP_DIR).as_posix()}",
         f"--num={num_samples}",
+        f"--ckpt={kimg}",
+        f"--end_ckpt={kimg}",
     ]
     log(f"  fid: {' '.join(cmd)}")
-    res = subprocess.run(cmd, cwd=PFGMPP_DIR, check=True, capture_output=True, text=True)
-    # fid.py prints e.g. "FID = 12.345" on the last meaningful line. Be defensive.
-    m = re.search(r"FID\s*[=:]\s*([0-9]+\.?[0-9]*)", res.stdout + res.stderr)
-    if not m:
-        log(f"  ! could not parse FID from output. stdout tail:")
-        log(res.stdout[-500:])
-        raise RuntimeError("FID parse failed")
-    return float(m.group(1))
+    res = subprocess.run(cmd, cwd=PFGMPP_DIR, check=False, capture_output=True,
+                         text=True, env=child_env())
+    if res.returncode != 0:
+        log(f"  ! fid.py exited {res.returncode}; stderr tail:")
+        for line in (res.stderr or "").splitlines()[-15:]:
+            log(f"    {line}")
+        raise RuntimeError(f"fid.py failed for kimg={kimg}")
+    # fid.py prints `path:<some_dir>, <fid_number>` for each evaluated ckpt.
+    # Find the line that mentions our kimg.
+    target = f"ckpt_{kimg:06d}"
+    for line in (res.stdout or "").splitlines():
+        if target in line:
+            m = re.search(r",\s*([0-9]+\.?[0-9]*(?:[eE][+-]?[0-9]+)?)\s*$", line)
+            if m:
+                return float(m.group(1))
+    log(f"  ! could not parse FID for {target} from stdout. stdout tail:")
+    for line in (res.stdout or "").splitlines()[-15:]:
+        log(f"    {line}")
+    raise RuntimeError(f"FID parse failed for kimg={kimg}")
 
 
 def make_sample_grid(images_dir: Path, dest: Path, n: int = 64) -> None:
@@ -149,6 +185,13 @@ def evaluate_run(run_dir: Path, d_value: str, pfgmpp: bool, aug_dim: int,
     if not run_dir.is_dir():
         log(f"run dir does not exist yet: {run_dir}")
         return 0
+    # Fail fast if the FID reference is missing — otherwise we'd burn ~12 min on
+    # generate.py before discovering it.
+    ref = PFGMPP_DIR / "fid-refs" / "cifar10-32x32.npz"
+    if not ref.exists():
+        log(f"! FID reference missing at {ref}")
+        log(f"  run `python prepare_dataset.py` to build it, then rerun this command")
+        return 0
     snapshots = discover_snapshots(run_dir)
     if not snapshots:
         log(f"no snapshots in {run_dir}")
@@ -163,7 +206,7 @@ def evaluate_run(run_dir: Path, d_value: str, pfgmpp: bool, aug_dim: int,
         try:
             images_dir = run_generate(run_dir, kimg, pfgmpp, aug_dim,
                                       num_samples, batch_per_step)
-            fid = run_fid(images_dir, num_samples)
+            fid = run_fid(run_dir, kimg, num_samples)
             grid_dest = run_dir / "samples" / f"step_{kimg:06d}.png"
             make_sample_grid(images_dir, grid_dest)
             wall = time.time() - t0

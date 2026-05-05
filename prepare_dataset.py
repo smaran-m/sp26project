@@ -92,7 +92,7 @@ def build_fid_ref(force: bool) -> None:
     log(f"Building FID reference statistics -> {FID_REF_NPZ}")
     # `fid.py ref` uses torch.distributed; needs torchrun even with one rank.
     cmd = [
-        "torchrun", "--standalone", "--nproc_per_node=1",
+        sys.executable,
         "fid.py", "ref",
         f"--data={DATASET_ZIP.relative_to(PFGMPP_DIR).as_posix()}",
         f"--dest={FID_REF_NPZ.relative_to(PFGMPP_DIR).as_posix()}",
