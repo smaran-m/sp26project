@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J pfgmpp_arr
 #SBATCH -N1 --ntasks-per-node=1
-#SBATCH --gres=gpu:A100:1                 # avoid AMD MI210 (ROCm) and pre-Volta NVIDIAs (no PyTorch kernels). A100=sm_80, broadly available.
+#SBATCH --gres=gpu:h100:1                 # PACE gres labels are lowercase. h100/h200 abundant on ice-gpu (~50+ nodes); avoids AMD MI210 + pre-Volta cards. Drop to gpu:a100:1 or gpu:l40s:1 if h100 contended.
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-gpu=96GB
 #SBATCH -t 16:00:00                       # PACE GPU partitions cap at 16h; resubmit to continue
