@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -J pfgmpp_arr
 #SBATCH -N1 --ntasks-per-node=1
-#SBATCH --gres=gpu:H100:1
+#SBATCH --gres=gpu:1                      # any GPU; H100 queue depth on PACE-ICE makes specific-type unrealistic
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-gpu=96GB
-#SBATCH -t 24:00:00
+#SBATCH -t 16:00:00                       # PACE GPU partitions cap at 16h; resubmit to continue
 #SBATCH --array=0-6                       # 7 D values: edm, 2, 8, 32, 128, 512, 2048
 #SBATCH -o logs/%x_%A_%a.out
 #SBATCH -e logs/%x_%A_%a.err

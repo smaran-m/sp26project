@@ -48,6 +48,9 @@ LOCAL = dict(
 
 CLUSTER = dict(
     batch=512,
+    batch_gpu=64,           # microbatch for gradient accumulation: 8 microbatches * 64 = 512.
+                            # Tuned for 40GB A100 (PACE-ICE often gives A100 even when
+                            # H100 is requested). On a real 80GB H100 you can raise to 128 or 256.
     _total_kimg=102400,     # 102.4 Mimg = 200k steps at batch 512
     _snapshot_kimg=5120,    # FID every 10k steps (5120 kimg) per the spec
     workers=4,

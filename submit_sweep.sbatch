@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -J pfgmpp_d                       # Job name (override per-D below via --job-name)
 #SBATCH -N1 --ntasks-per-node=1
-#SBATCH --gres=gpu:H100:1                 # 1 H100 (matches hw2.sbatch convention)
+#SBATCH --gres=gpu:1                      # any GPU; H100 queue depth on PACE-ICE makes specific-type unrealistic
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-gpu=96GB                # Per hw2.sbatch — proven sufficient on this cluster
-#SBATCH -t 24:00:00                       # 24h walltime; resubmit to continue from checkpoint
+#SBATCH -t 16:00:00                       # PACE GPU partitions cap at 16h; resubmit to continue from checkpoint
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 #SBATCH --mail-type=END,FAIL

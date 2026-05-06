@@ -97,10 +97,11 @@ def build_train_cmd(cfg: dict, run_dir: Path, resume: Path | None) -> list[str]:
         f"--outdir={TRAINING_RUNS.relative_to(PFGMPP_DIR).as_posix()}",
         f"--name={cfg['name']}",
     ]
+    # train.py's click options use literal Python names (mostly underscored), with one
+    # exception: --batch-gpu (hyphenated). Map the Python key to its CLI form.
+    cli_aliases = {"batch_gpu": "batch-gpu"}
     for k, v in train_kwargs.items():
-        # train.py's click options use the literal Python names (mostly underscored,
-        # one `--batch-gpu` exception we don't pass here).
-        flag = f"--{k}"
+        flag = f"--{cli_aliases.get(k, k)}"
         if isinstance(v, bool):
             cmd.append(f"{flag}={int(v)}")
         else:
