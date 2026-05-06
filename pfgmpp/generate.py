@@ -318,7 +318,8 @@ def main(ckpt, end_ckpt, outdir, subdirs, seeds, class_idx, max_batch_size, save
                 net = pickle.load(f)['ema'].to(device)
                 ckpt_num = int(ckpt_dir[-10:-4])
         else:
-            data = torch.load(ckpt_dir, map_location=torch.device('cpu'))
+            # torch>=2.6: weights_only=True default rejects pickled nn.Modules. Our snapshots are trusted.
+            data = torch.load(ckpt_dir, map_location=torch.device('cpu'), weights_only=False)
             net = data['ema'].eval().to(device)
             ckpt_num = int(ckpt_dir[-9:-3])
 

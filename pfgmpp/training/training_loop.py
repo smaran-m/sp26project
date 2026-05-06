@@ -126,7 +126,11 @@ def training_loop(
         dist.print0(f'Loading training state from "{resume_state_dump}"...')
         if dist.get_rank() != 0:
             torch.distributed.barrier() # rank 0 goes first
-        data = torch.load(resume_state_dump, map_location=torch.device('cpu'))
+        # torch>=2.6 flipped the default of weights_only from False to True. The
+        # upstream snapshot pickles full nn.Module objects (network + EMA), which
+        # weights_only refuses to unpickle. The checkpoints are produced by our own
+        # train.py runs, so loading with weights_only=False is safe here.
+        data = torch.load(resume_state_dump, map_location=torch.device('cpu'), weights_only=False)
         if dist.get_rank() == 0:
             torch.distributed.barrier() # other ranks follow
         misc.copy_params_and_buffers(src_module=data['net'], dst_module=net, require_all=True)
