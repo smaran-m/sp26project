@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J pfgmpp_d                       # Job name (override per-D below via --job-name)
 #SBATCH -N1 --ntasks-per-node=1
-#SBATCH --gres=gpu:h100:1                 # PACE gres labels are lowercase. h100/h200 abundant on ice-gpu (~50+ nodes); avoids AMD MI210 + pre-Volta cards. Drop to gpu:a100:1 or gpu:l40s:1 if h100 contended.
+#SBATCH --gres=gpu:l40s:1                 # L40S (48GB Ada, sm_89) on coc-gpu — schedulable under coc-ice QoS. h100/h200 are visible on ice-gpu but require COE access. l40s is ample for ncsnpp batch_gpu=64.
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-gpu=96GB                # Per hw2.sbatch — proven sufficient on this cluster
 #SBATCH -t 16:00:00                       # PACE GPU partitions cap at 16h; resubmit to continue from checkpoint
